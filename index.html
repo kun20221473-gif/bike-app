@@ -59,9 +59,27 @@
             </div>
         </div>
 
+        <!-- Bookmarked Section (Pinned Top) -->
+        <div id="bookmark-section" class="hidden flex flex-col gap-3">
+            <div class="flex items-center gap-2">
+                <span class="text-amber-500 font-bold">⭐</span>
+                <h2 class="text-base font-bold text-slate-800">즐겨찾는 대여소</h2>
+            </div>
+            <div id="bookmark-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Bookmarked Cards Inserted Here -->
+            </div>
+            <hr class="border-slate-200 my-2">
+        </div>
+
         <!-- Station Grid / List View -->
-        <div id="station-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <!-- Dynamic Cards Inserted Here -->
+        <div>
+            <div class="flex items-center gap-2 mb-3">
+                <span class="text-emerald-600 font-bold">🚲</span>
+                <h2 class="text-base font-bold text-slate-800">전체 대여소 목록</h2>
+            </div>
+            <div id="station-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Dynamic Cards Inserted Here -->
+            </div>
         </div>
 
         <!-- Empty State -->
@@ -71,6 +89,36 @@
             <p class="text-sm text-slate-500 mt-1">다른 검색어를 입력해 보거나 새로고침을 시도해 주세요.</p>
         </div>
     </main>
+
+    <!-- Map Modal -->
+    <div id="map-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <div class="flex items-center gap-2">
+                    <span class="text-emerald-600 text-xl">📍</span>
+                    <h3 id="modal-station-name" class="font-bold text-lg text-slate-800">대여소 위치</h3>
+                </div>
+                <button onclick="closeMapModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <div class="bg-slate-100 rounded-xl p-4 flex flex-col items-center justify-center text-center gap-2 border border-slate-200 h-48">
+                <div class="text-3xl">🗺️</div>
+                <p class="font-medium text-slate-700" id="modal-coords-text">위도 / 경도 정보</p>
+                <p class="text-xs text-slate-500">카카오맵 또는 네이버 지도에서 위치를 확인할 수 있습니다.</p>
+            </div>
+
+            <div class="flex gap-2">
+                <a id="naver-map-link" href="#" target="_blank" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-center py-2.5 rounded-xl font-medium text-sm transition shadow-sm">
+                    네이버 지도로 보기
+                </a>
+                <button onclick="closeMapModal()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-xl transition">
+                    닫기
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- Footer -->
     <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
@@ -138,6 +186,7 @@
         };
 
         let allStations = [];
+        let bookmarks = JSON.parse(localStorage.getItem('ttareungyi_bookmarks') || '[]');
 
         // Fetch Data from /api/bike or fallback to sampleData
         async function fetchBikeData() {
@@ -167,11 +216,13 @@
             try {
                 const rows = data?.rentBikeStatus?.row || [];
                 allStations = rows.map(item => ({
+                    stationId: item.stationId || item.stationName,
                     stationName: item.stationName || '알 수 없는 대여소',
                     parkingBikeTotCnt: Number(item.parkingBikeTotCnt) || 0,
                     rackTotCnt: Number(item.rackTotCnt) || 0,
                     shared: Number(item.shared) || 0,
-                    stationId: item.stationId || ''
+                    stationLatitude: item.stationLatitude || '37.5665',
+                    stationLongitude: item.stationLongitude || '126.9780'
                 }));
 
                 // Toggle Sample badge
@@ -200,43 +251,80 @@
             renderStations(filtered);
         }
 
+        // Toggle bookmark state
+        function toggleBookmark(stationId) {
+            const index = bookmarks.indexOf(stationId);
+            if (index > -1) {
+                bookmarks.splice(index, 1);
+            } else {
+                bookmarks.push(stationId);
+            }
+            localStorage.setItem('ttareungyi_bookmarks', JSON.stringify(bookmarks));
+            filterStations();
+        }
+
         // Render station cards to UI
         function renderStations(stations) {
+            const bookmarkContainer = document.getElementById('bookmark-container');
+            const bookmarkSection = document.getElementById('bookmark-section');
             const container = document.getElementById('station-container');
             const emptyState = document.getElementById('empty-state');
-            document.getElementById('total-count').textContent = stations.length;
+            
+            document.getElementById('total-count').textContent = allStations.length;
 
+            bookmarkContainer.innerHTML = '';
             container.innerHTML = '';
 
+            // Separate bookmarked and regular stations
+            const bookmarkedStations = stations.filter(s => bookmarks.includes(s.stationId));
+            const regularStations = stations.filter(s => !bookmarks.includes(s.stationId));
+
+            // Render Bookmarks
+            if (bookmarkedStations.length > 0) {
+                bookmarkSection.classList.remove('hidden');
+                bookmarkSection.classList.add('flex');
+                bookmarkedStations.forEach(station => {
+                    bookmarkContainer.appendChild(createStationCard(station, true));
+                });
+            } else {
+                bookmarkSection.classList.remove('flex');
+                bookmarkSection.classList.add('hidden');
+            }
+
+            // Render Regular Stations
             if (stations.length === 0) {
                 emptyState.classList.remove('hidden');
                 emptyState.classList.add('flex');
-                return;
             } else {
                 emptyState.classList.remove('flex');
                 emptyState.classList.add('hidden');
             }
 
-            stations.forEach(station => {
-                const isZeroBike = station.parkingBikeTotCnt === 0;
-                
-                // Color formatting: red if 0 bikes, emerald/slate otherwise
-                const bikeCountColor = isZeroBike ? 'text-red-600 bg-red-50 border-red-200' : 'text-slate-800 bg-slate-50 border-slate-100';
-                const badgeColor = isZeroBike 
-                    ? '<span class="bg-red-100 text-red-700 text-xs px-2.5 py-0.5 rounded-full font-semibold">대여 불가 (재고 없음)</span>' 
-                    : '<span class="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-0.5 rounded-full font-semibold">이용 가능</span>';
+            regularStations.forEach(station => {
+                container.appendChild(createStationCard(station, false));
+            });
+        }
 
-                const card = document.createElement('div');
-                card.className = `bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between transition hover:shadow-md`;
-                
-                card.innerHTML = `
-                    <div>
-                        <div class="flex justify-between items-start gap-2 mb-2">
-                            <h2 class="font-semibold text-slate-800 text-base leading-snug">${escapeHtml(station.stationName)}</h2>
-                            ${badgeColor}
-                        </div>
+        // Create individual station card element
+        function createStationCard(station, isBookmarked) {
+            const isZeroBike = station.parkingBikeTotCnt === 0;
+            const bikeCountColor = isZeroBike ? 'text-red-600 bg-red-50 border-red-200' : 'text-slate-800 bg-slate-50 border-slate-100';
+            const badgeColor = isZeroBike 
+                ? '<span class="bg-red-100 text-red-700 text-xs px-2.5 py-0.5 rounded-full font-semibold">대여 불가</span>' 
+                : '<span class="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-0.5 rounded-full font-semibold">이용 가능</span>';
+
+            const card = document.createElement('div');
+            card.className = `bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between transition hover:shadow-md relative`;
+            
+            card.innerHTML = `
+                <div>
+                    <div class="flex justify-between items-start gap-2 mb-2">
+                        <h3 class="font-semibold text-slate-800 text-base leading-snug pr-8">${escapeHtml(station.stationName)}</h3>
+                        ${badgeColor}
                     </div>
-                    <div class="mt-4 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-center">
+                </div>
+                <div class="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-3">
+                    <div class="grid grid-cols-3 gap-2 text-center">
                         <div class="p-2 rounded-xl border ${bikeCountColor}">
                             <div class="text-xs text-slate-500 mb-0.5">잔여 자전거</div>
                             <div class="text-lg font-bold">${station.parkingBikeTotCnt}대</div>
@@ -250,9 +338,38 @@
                             <div class="text-lg font-bold text-slate-700">${station.shared}%</div>
                         </div>
                     </div>
-                `;
-                container.appendChild(card);
-            });
+                    <div class="flex gap-2">
+                        <button onclick="openMapModal('${escapeHtml(station.stationName)}', '${station.stationLatitude}', '${station.stationLongitude}')" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5">
+                            📍 지도 보기
+                        </button>
+                        <button onclick="toggleBookmark('${station.stationId}')" class="px-3 py-2 rounded-xl text-xs font-medium border transition flex items-center justify-center ${isBookmarked ? 'bg-amber-50 border-amber-300 text-amber-600' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'}">
+                            ${isBookmarked ? '⭐ 즐겨찾기 해제' : '☆ 즐겨찾기'}
+                        </button>
+                    </div>
+                </div>
+            `;
+            return card;
+        }
+
+        // Open Map Modal
+        function openMapModal(name, lat, lng) {
+            document.getElementById('modal-station-name').textContent = name;
+            document.getElementById('modal-coords-text').textContent = `위도: ${lat}, 경도: ${lng}`;
+            
+            // Naver map search or directions link
+            const naverMapUrl = `https://map.naver.com/v5/search/${encodeURIComponent(name)}`;
+            document.getElementById('naver-map-link').href = naverMapUrl;
+
+            const modal = document.getElementById('map-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        // Close Map Modal
+        function closeMapModal() {
+            const modal = document.getElementById('map-modal');
+            modal.classList.remove('flex');
+            modal.classList.add('hidden');
         }
 
         // Update last refreshed timestamp
@@ -264,7 +381,7 @@
 
         // Helper to prevent XSS
         function escapeHtml(str) {
-            return str.replace(/[&<>'"]/g, 
+            return String(str).replace(/[&<>'"]/g, 
                 tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
             );
         }
